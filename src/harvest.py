@@ -32,6 +32,7 @@ sys.path.insert(0, HERE)
 import wordbank as wb          # 抓取 / 抽取 / 断句 / 分词
 import sources_bili            # B 站
 import sources_rss             # RSS / Atom
+import fetchx                  # 带体检的 HTTP 层
 
 try:
     import yaml
@@ -111,58 +112,57 @@ def robots_allowed(url, ua):
         return True
 
 
-def fetch_with_retry(url, fcfg, proxy=None):
-    last = None
-    for i in range(fcfg["retries"] + 1):
-        try:
-            return wb.fetch(url, proxy)
-        except Exception as e:  # noqa: BLE001
-            last = e
-            if i < fcfg["retries"]:
-                time.sleep(2 + i * 2)
-    raise last
+def _html_text(url, fcfg, proxy=None):
+    if not re.match(r"^https?://", url, re.I):
+        # 本地文件：调试用（也支持 .mhtml）
+        with open(url, "rb") as f:
+            raw = f.read()
+        if raw[:5].lower() == b"from:":
+            from email import message_from_bytes
+            from email.policy import compat32
+            msg = message_from_bytes(raw, policy=compat32)
+            best = b""
+            for part in msg.walk():
+                if part.get_content_type() == "text/html":
+                    d = part.get_payload(decode=True) or b""
+                    if len(d) > len(best):
+                        best = d
+            raw = best or raw
+        ctype, final, status = "", os.path.abspath(url), 200
+    else:
+        raw, ctype, final, status = fetchx.http_get(
+            url, timeout=fcfg["timeout"], proxy=proxy,
+            accept="text/html,application/xhtml+xml")
+    text, enc = wb.decode(raw, ctype)
+    ex = wb.Extractor()
+    ex.feed(text)
+    t = ex.text()
+    title = re.sub(r"\s+", " ", ex.title).strip()
+    if title and t.startswith(title):
+        t = t[len(title):].lstrip(" \n-_·—|")
+    return t, final, "HTTP %s %s字节 %s" % (status, format(len(raw), ","), enc)
 
 
 def source_text(src, cfg, proxy=None):
-    """按 type 取纯文本，返回 (文本, 真实地址, 备注)"""
+    """按 type 取纯文本，返回 (文本, 真实地址, 备注)。抓不到就抛"""
     kind = src.get("type", "html")
+    fcfg = cfg["fetch"]
 
     if kind.startswith("bilibili"):
-        lines, note = sources_bili.get(src)
-        return "\n".join(lines), src.get("url", "bilibili://%s" % kind), note
+        lines, _vids, note = sources_bili.get(src)
+        return "\n".join(lines), src.get("url", "bilibili://" + kind), note
+
+    if fcfg.get("respect_robots") and not robots_allowed(src["url"], wb.UA):
+        raise fetchx.SourceRejected("robots.txt 不允许抓取")
 
     if kind == "rss":
-        fcfg = cfg["fetch"]
-        if fcfg.get("respect_robots") and not robots_allowed(src["url"], wb.UA):
-            raise PermissionError("robots.txt 不允许抓取")
-        raw = None
-        last = None
-        for i in range(fcfg["retries"] + 1):
-            try:
-                import urllib.request
-                req = urllib.request.Request(src["url"], headers={
-                    "User-Agent": wb.UA, "Accept-Encoding": "identity",
-                    "Accept": "application/rss+xml,application/xml,text/xml,*/*"})
-                with urllib.request.urlopen(req, timeout=fcfg["timeout"]) as r:
-                    raw = r.read()
-                break
-            except Exception as e:  # noqa: BLE001
-                last = e
-                time.sleep(2 + i * 2)
-        if raw is None:
-            raise last
+        raw, ctype, final, status = fetchx.http_get(
+            src["url"], timeout=fcfg["timeout"], proxy=proxy,
+            accept="application/rss+xml,application/xml,text/xml,*/*")
         text, n = sources_rss.feed_text(raw)
-        return "\n".join(text), src["url"], "feed 条目 %d" % n
+        return "\n".join(text), final, "feed %d 条" % n
 
-    # 默认：HTML
-    html, real_url, note = fetch_with_retry(src["url"], cfg["fetch"], proxy)
-    ex = wb.Extractor()
-    ex.feed(html)
-    text = ex.text()
-    title = re.sub(r"\s+", " ", ex.title).strip()
-    if title and text.startswith(title):
-        text = text[len(title):].lstrip(" \n-_·—|")
-    return text, real_url, note
+    return _html_text(src["url"], fcfg, proxy)
 
 
 # ---------------------------------------------------------------- 单源处理
@@ -192,8 +192,11 @@ def iter_bigrams(tokens):
 def process_source(src, cfg, proxy=None):
     name = src.get("name") or src.get("url")
     text, real_url, note = source_text(src, cfg, proxy)
-    if len(text) < 50:
-        raise ValueError("正文太短（可能是 JS 渲染），换 RSS/API 或浏览器另存 .mhtml")
+    # 这一层是关键：404/登录墙/空白 JSON 在这里被拦下，绝不进词库
+    vinfo = fetchx.validate_text(text,
+                                 min_chars=src.get("min_chars", 60),
+                                 min_cjk_ratio=src.get("min_cjk", 0.30))
+    text = text.strip()
 
     old_min = wb.MIN_SENT
     wb.MIN_SENT = int(src.get("min_sent", old_min))
@@ -234,7 +237,7 @@ def process_source(src, cfg, proxy=None):
     stat = {"name": name, "url": real_url, "ok": True, "type": src.get("type", "html"),
             "chars": len(text), "sentences": sst.get("n", 0),
             "tokens": len(tokens), "kept": sum(freq.values()),
-            "dropped": dropped, "unique": len(freq),
+            "dropped": dropped, "unique": len(freq), "cjk": vinfo["cjk"],
             "bigrams": len(bg), "engine": engine, "note": note,
             "top": freq.most_common(8)}
     return freq, pos_of, sents, bg, stat

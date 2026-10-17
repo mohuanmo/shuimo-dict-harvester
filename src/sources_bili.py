@@ -1,58 +1,66 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-B 站文本源
-----------
-不打登录态、不碰视频流，只取"文字"：
-    popular  热门列表（标题/简介/分区/UP主/推荐语）
-    ranking  排行榜（同上）
-    danmaku  热门视频弹幕（口语短句，组句词库最好的语料）
-    view     单个视频的详细简介 + 分P 标题
+B 站文本源（不带登录态）
+------------------------
+    bilibili_popular   热门列表：标题/简介/分区/UP主
+    bilibili_ranking   排行榜
+    bilibili_comments  评论区：wbi 签名的 /x/v2/reply/wbi/main（口语金矿）
+    bilibili_danmaku   弹幕：/x/v2/dm/web/seg.so（protobuf）
 
-注意：弹幕接口对海外 IP 偶尔 412，抓不到就抛异常，调度层会跳过该源。
+所有请求都走 fetchx：状态码、content-type、错误页、空 data 都会被拦下来，
+抓不到就抛 SourceRejected，绝不让半截数据进词库。
 """
 
-import html
+import hashlib
 import json
 import re
 import time
-import urllib.request
+import urllib.parse
 
-UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+import fetchx
 
 API = "https://api.bilibili.com"
 
+# wbi 混排表（B 站前端固定常量）
+MIXIN_TAB = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+             33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61,
+             26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36,
+             20, 34, 44, 52]
 
-def _get(url, timeout=20, binary=False, referer="https://www.bilibili.com/"):
-    req = urllib.request.Request(url, headers={
-        "User-Agent": UA,
-        "Referer": referer,
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Accept-Encoding": "identity",     # 不要压缩，省得自己解
-        "Connection": "close",
-    })
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        raw = r.read()
-        return (raw if binary else raw.decode("utf-8", "ignore")), r.status
+_nav = {"key": None, "ts": 0}
 
 
-def _api(path, timeout=20):
-    txt, _ = _get(API + path, timeout=timeout)
-    d = json.loads(txt)
-    if d.get("code") != 0:
-        raise RuntimeError("bilibili code=%s %s" % (d.get("code"), d.get("message")))
-    return d.get("data") or {}
+def mixin_key(force=False):
+    if not force and _nav["key"] and time.time() - _nav["ts"] < 3600:
+        return _nav["key"]
+    d = fetchx.get_json(API + "/x/web-interface/nav", allow_empty=True)
+    img = d["data"]["wbi_img"]["img_url"].rsplit("/", 1)[-1].split(".")[0]
+    sub = d["data"]["wbi_img"]["sub_url"].rsplit("/", 1)[-1].split(".")[0]
+    raw = img + sub
+    if len(raw) < 64:
+        raise fetchx.SourceRejected("wbi_key 拿不到")
+    _nav.update(key="".join(raw[i] for i in MIXIN_TAB)[:32], ts=time.time())
+    return _nav["key"]
 
 
-def _video_lines(v):
-    """把一个视频 JSON 里所有能当语料的文字抽出来"""
+def sign(params, key=None):
+    key = key or mixin_key()
+    p = dict(params)
+    p["wts"] = int(time.time())
+    q = "&".join("%s=%s" % (k, urllib.parse.quote(str(v), safe=""))
+                 for k, v in sorted(p.items()))
+    return q + "&w_rid=" + hashlib.md5((q + key).encode()).hexdigest()
+
+
+# ---------------------------------------------------------------- 列表类
+
+def _lines_of_video(v):
     out = []
-    for k in ("title", "desc", "tname", "dynamic"):
-        val = v.get(k)
-        if isinstance(val, str) and val.strip():
-            out.append(val.strip())
+    for k in ("title", "desc", "dynamic", "tname"):
+        s = v.get(k)
+        if isinstance(s, str) and s.strip():
+            out.append(s.strip())
     owner = v.get("owner") or {}
     if owner.get("name"):
         out.append(str(owner["name"]))
@@ -63,86 +71,193 @@ def _video_lines(v):
 
 
 def popular(pages=2, ps=50):
-    """热门列表 → (文本行, [cid])"""
-    lines, cids = [], []
+    lines, vids = [], []
     for pn in range(1, pages + 1):
-        data = _api("/x/web-interface/popular?ps=%d&pn=%d" % (ps, pn))
-        for v in data.get("list", []):
-            lines += _video_lines(v)
-            if v.get("cid"):
-                cids.append(int(v["cid"]))
-    return lines, cids
+        d = fetchx.get_json(API + "/x/web-interface/popular?ps=%d&pn=%d" % (ps, pn))
+        lst = (d.get("data") or {}).get("list") or []
+        if not lst:
+            raise fetchx.SourceRejected("热门列表为空")
+        for v in lst:
+            lines += _lines_of_video(v)
+            if v.get("cid") and v.get("aid"):
+                vids.append((int(v["aid"]), int(v["cid"])))
+    return lines, vids
 
 
 def ranking(rid=0):
-    data = _api("/x/web-interface/ranking/v2?rid=%d&type=all" % rid)
-    lines, cids = [], []
-    for v in data.get("list", []):
-        lines += _video_lines(v)
-        if v.get("cid"):
-            cids.append(int(v["cid"]))
-    return lines, cids
+    d = fetchx.get_json(API + "/x/web-interface/ranking/v2?rid=%d&type=all" % rid)
+    lst = (d.get("data") or {}).get("list") or []
+    if not lst:
+        raise fetchx.SourceRejected("排行榜为空")
+    lines, vids = [], []
+    for v in lst:
+        lines += _lines_of_video(v)
+        if v.get("cid") and v.get("aid"):
+            vids.append((int(v["aid"]), int(v["cid"])))
+    return lines, vids
 
 
-def view(bvid):
-    data = _api("/x/web-interface/view?bvid=" + bvid)
-    lines = _video_lines(data)
-    for p in data.get("pages", [])[:20]:
-        if p.get("part"):
-            lines.append(str(p["part"]))
-    for st in data.get("staff", [])[:10]:
-        if st.get("name"):
-            lines.append(str(st["name"]))
-    return lines
+# ---------------------------------------------------------------- 评论区
 
-
-DM_TAG = re.compile(r"<d\b[^>]*>(.*?)</d>", re.S)
-
-
-def danmaku(cids, per_video=800, delay=0.4):
-    """弹幕 XML → 文本行。每条弹幕单独一行，交给断句层处理"""
+def comments(vids, pages=2, delay=0.5):
+    """热门评论（mode=3）+ 最新评论（mode=2），翻页用 cursor"""
+    key = mixin_key()
     lines = []
-    for i, cid in enumerate(cids):
-        try:
-            raw, _ = _get("https://comment.bilibili.com/%d.xml" % cid, binary=True)
-        except Exception:
-            time.sleep(delay)
-            continue
-        txt = raw.decode("utf-8", "ignore")
-        got = DM_TAG.findall(txt)[:per_video]
-        for g in got:
-            g = html.unescape(g).strip()
-            if g:
-                lines.append(g)
+    for aid, _cid in vids:
+        for mode in (3, 2):
+            offset = ""
+            for _ in range(pages):
+                q = sign({"oid": aid, "type": 1, "mode": mode,
+                          "pagination_str": json.dumps({"offset": offset}),
+                          "plat": 1, "web_location": 1315875}, key)
+                try:
+                    d = fetchx.get_json(API + "/x/v2/reply/wbi/main?" + q)
+                except fetchx.SourceRejected as e:
+                    if "wbi" in str(e) or "-403" in str(e):
+                        raise
+                    break
+                data = d.get("data") or {}
+                for r in (data.get("top_replies") or []) + (data.get("replies") or []):
+                    msg = ((r.get("content") or {}).get("message") or "").strip()
+                    if msg:
+                        lines.append(msg)
+                        # 楼中楼往往更口语
+                        for sub in ((r.get("replies") or [])[:3]):
+                            m2 = ((sub.get("content") or {}).get("message") or "").strip()
+                            if m2:
+                                lines.append(m2)
+                cur = data.get("cursor") or {}
+                if cur.get("is_end"):
+                    break
+                offset = ((cur.get("pagination_reply") or {}).get("next_offset") or "")
+                if not offset:
+                    break
+                time.sleep(delay)
         time.sleep(delay)
     if not lines:
-        raise RuntimeError("一条弹幕都没拿到（可能是 412 / 接口变更）")
+        raise fetchx.SourceRejected("评论区一条都没拿到")
     return lines
 
 
+# ---------------------------------------------------------------- 弹幕（protobuf）
+
+def _varint(buf, i):
+    shift = 0
+    val = 0
+    while True:
+        b = buf[i]
+        i += 1
+        val |= (b & 0x7F) << shift
+        if not (b & 0x80):
+            return val, i
+        shift += 7
+        if shift > 63:
+            raise ValueError("varint too long")
+
+
+def _msg_string(buf, want_field):
+    """从一条 protobuf 消息里取指定字段的字符串值"""
+    i, n = 0, len(buf)
+    while i < n:
+        key, i = _varint(buf, i)
+        f, wt = key >> 3, key & 7
+        if wt == 2:
+            ln, i = _varint(buf, i)
+            val = buf[i:i + ln]
+            i += ln
+            if f == want_field:
+                return val.decode("utf-8", "ignore")
+        elif wt == 0:
+            _, i = _varint(buf, i)
+        elif wt == 5:
+            i += 4
+        elif wt == 1:
+            i += 8
+        else:
+            break
+    return None
+
+
+def parse_seg(buf):
+    """DanmakuSeg：顶层 repeated DanmakuElem(field 1)，内容在 field 7"""
+    out = []
+    i, n = 0, len(buf)
+    while i < n:
+        key, i = _varint(buf, i)
+        f, wt = key >> 3, key & 7
+        if wt == 2:
+            ln, i = _varint(buf, i)
+            val = buf[i:i + ln]
+            i += ln
+            if f == 1:
+                s = _msg_string(val, 7)
+                if s:
+                    out.append(s)
+        elif wt == 0:
+            _, i = _varint(buf, i)
+        elif wt == 5:
+            i += 4
+        elif wt == 1:
+            i += 8
+        else:
+            break
+    return out
+
+
+def danmaku(vids, per_video=900, segments=2, delay=0.4):
+    lines = []
+    for aid, cid in vids:
+        got = 0
+        for seg in range(1, segments + 1):
+            url = (API + "/x/v2/dm/web/seg.so?type=1&oid=%d&pid=%d&segment_index=%d"
+                   % (cid, aid, seg))
+            try:
+                raw, _ctype, _final, _st = fetchx.http_get(
+                    url, referer="https://www.bilibili.com/video/av%d" % aid)
+            except fetchx.SourceRejected:
+                break
+            try:
+                got += len(parse_seg(raw))
+            except Exception:
+                break
+            lines.extend(parse_seg(raw)[:per_video])
+            if len(parse_seg(raw)) < 10:
+                break
+            time.sleep(delay)
+        time.sleep(delay)
+    # 去重 + 长度过滤
+    seen = set()
+    out = []
+    for s in lines:
+        s = s.strip()
+        if 1 <= len(s) <= 40 and s not in seen:
+            seen.add(s)
+            out.append(s)
+    if not out:
+        raise fetchx.SourceRejected("弹幕一条都没拿到（412 或接口变更）")
+    return out
+
+
+# ---------------------------------------------------------------- 统一入口
+
 def get(src):
-    """统一入口：返回 (lines, 备注)"""
     kind = src.get("type", "bilibili_popular")
     if kind == "bilibili_popular":
-        lines, cids = popular(src.get("pages", 2), src.get("ps", 50))
-        return lines, "热门 %d 条视频 / %d 个 cid" % (len(lines), len(cids))
+        lines, vids = popular(src.get("pages", 2), src.get("ps", 50))
+        return lines, vids, "热门 %d 行 / %d 个视频" % (len(lines), len(vids))
     if kind == "bilibili_ranking":
-        lines, cids = ranking(src.get("rid", 0))
-        return lines, "排行榜 %d 行" % len(lines)
-    if kind == "bilibili_view":
-        lines = []
-        for b in src.get("bvids", [])[:20]:
-            try:
-                lines += view(b)
-            except Exception as e:
-                lines.append("")  # 单个失败不影响整体
-        return lines, "view %d 行" % len(lines)
-    if kind == "bilibili_danmaku":
-        if src.get("cids"):
-            cids = [int(c) for c in src["cids"]]
+        lines, vids = ranking(src.get("rid", 0))
+        return lines, vids, "排行 %d 行 / %d 个视频" % (len(lines), len(vids))
+    if kind in ("bilibili_comments", "bilibili_danmaku"):
+        if src.get("vids"):
+            vids = [(int(a), int(c)) for a, c in src["vids"]]
         else:
-            _, cids = popular(src.get("pages", 1), 30)
-        lines = danmaku(cids[:src.get("videos", 20)],
-                        src.get("per_video", 800), src.get("delay", 0.4))
-        return lines, "弹幕 %d 条 / %d 个视频" % (len(lines), min(len(cids), src.get("videos", 20)))
-    raise ValueError("未知的 bilibili 源类型：%s" % kind)
+            _l, vids = popular(src.get("seed_pages", 1), src.get("seed_ps", 30))
+        vids = vids[:src.get("videos", 12)]
+        if kind == "bilibili_comments":
+            lines = comments(vids, src.get("pages", 2), src.get("delay", 0.5))
+            return lines, vids, "评论 %d 条 / %d 个视频" % (len(lines), len(vids))
+        lines = danmaku(vids, src.get("per_video", 900),
+                        src.get("segments", 2), src.get("delay", 0.4))
+        return lines, vids, "弹幕 %d 条 / %d 个视频" % (len(lines), len(vids))
+    raise fetchx.SourceRejected("未知的 B 站源类型：%s" % kind)

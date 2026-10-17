@@ -6,9 +6,9 @@
 
 | 文件 | 内容 | 对应格式 |
 |---|---|---|
-| `data/dict/shuimo_juzi.dict` | **只有** `词条<TAB>拼音<TAB>词频` | ① 组句词库（连续拼音 / 长句组句） |
+| `data/dict/shuimo_juzi.txt` | **只有** `词条<TAB>拼音<TAB>词频` | ① 组句词库（连续拼音 / 长句组句） |
 | `data/dict/shuimo_bigram.txt` | **只有** `词1 词2 共现次数` | ② 语料词对（消同音歧义） |
-| `data/dict/shuimo.dict` | `词<TAB>词频<TAB>词性<TAB>分类` | ③ 附带的通用词库，备查用，不喂给引擎也行 |
+| `data/dict/shuimo_raw.txt` | `词<TAB>词频<TAB>词性<TAB>分类` | ③ 附带的通用词库，备查用，不喂给引擎也行 |
 
 **① 组句词库**：词条纯汉字 2–6 字（超长跳过）；拼音无声调，`pinyin_sep: ""` 出连体 `kaishi`，`" "` 出分词 `kai shi`；词频是合并后的整数。
 

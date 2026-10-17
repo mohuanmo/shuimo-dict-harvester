@@ -56,8 +56,8 @@ jobs:
 
       - name: 统计产物
         run: |
-          echo "词条数：$(grep -vc '^#' data/dict/shuimo.dict || echo 0)"
-          du -h data/dict/shuimo.dict
+          echo "词条数：$(grep -vc '^#' data/dict/shuimo_juzi.txt || echo 0)"
+          du -h data/dict/shuimo_juzi.txt
 
       - name: 提交回仓库
         run: |
@@ -80,7 +80,7 @@ jobs:
           name: shuimo-dict-${{ github.run_number }}
           if-no-files-found: ignore
           path: |
-            data/dict/shuimo.dict
+            data/dict/shuimo_juzi.txt
             data/dict/report-*.md
             data/dict/meta.json
           retention-days: 14

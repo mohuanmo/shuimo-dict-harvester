@@ -49,11 +49,11 @@ DEFAULTS = {
     "output": {
         "dir": "data/dict",
         "formats": [
-            {"type": "juzi", "file": "shuimo_juzi.dict",
+            {"type": "juzi", "file": "shuimo_juzi.txt",
              "min_freq": 2, "min_len": 2, "max_len": 6, "pinyin_sep": ""},
             {"type": "bigram", "file": "shuimo_bigram.txt",
              "min_count": 2, "max_word_len": 4, "max_rows": 200000},
-            {"type": "raw", "file": "shuimo.dict",
+            {"type": "raw", "file": "shuimo_raw.txt",
              "template": "{word}\t{freq}\t{pos}\t{cls}",
              "min_freq": 2, "split_by_class": True},
         ],
@@ -446,7 +446,7 @@ def export_raw(rows, out_dir, fmt, enc, today):
     os.makedirs(out_dir, exist_ok=True)
     tmpl = fmt.get("template", "{word}\t{freq}\t{pos}\t{cls}")
     min_freq = fmt.get("min_freq", 2)
-    path = os.path.join(out_dir, fmt.get("file", "shuimo.dict"))
+    path = os.path.join(out_dir, fmt.get("file", "shuimo_raw.txt"))
     sel = [r for r in rows if r[1] >= min_freq]
     per_class = Counter(r[3] for r in sel)
     with open(path, "w", encoding=enc, newline="\n") as f:

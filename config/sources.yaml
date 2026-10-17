@@ -9,7 +9,7 @@ output:
   formats:
     # ① 组句词库：词条 <TAB> 拼音 <TAB> 词频（汉字 ≤6 字）
     - type: juzi
-      file: shuimo_juzi.dict
+      file: shuimo_juzi.txt
       min_freq: 2
       min_len: 2
       max_len: 6
@@ -24,7 +24,7 @@ output:
 
     # ③ 通用词库（带词性/分类，留着备查）
     - type: raw
-      file: shuimo.dict
+      file: shuimo_raw.txt
       template: "{word}\t{freq}\t{pos}\t{cls}"
       min_freq: 2
       split_by_class: true

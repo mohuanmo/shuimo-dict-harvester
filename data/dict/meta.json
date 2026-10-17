@@ -1,0 +1,71 @@
+{
+  "generated_at": "2026-10-17T11:32:39",
+  "date": "2026-10-17",
+  "words": 9,
+  "total_score": 18,
+  "by_class": {
+    "其他": 3,
+    "通用名词": 2,
+    "动词": 2,
+    "科技数码": 1,
+    "生活日常": 1
+  },
+  "sources": [
+    {
+      "name": "示例-本地页面",
+      "url": "/home/runner/work/shuimo-dict-harvester/shuimo-dict-harvester/data/sample.html",
+      "ok": true,
+      "chars": 734,
+      "sentences": 17,
+      "tokens": 459,
+      "kept": 228,
+      "dropped": 231,
+      "unique": 219,
+      "engine": "jieba",
+      "note": "原始文件 2,624 字节；解码 utf-8",
+      "top": [
+        [
+          "测试",
+          2
+        ],
+        [
+          "模型",
+          2
+        ],
+        [
+          "功耗",
+          2
+        ],
+        [
+          "表示",
+          2
+        ],
+        [
+          "变化",
+          2
+        ],
+        [
+          "孩子",
+          2
+        ],
+        [
+          "出现",
+          2
+        ],
+        [
+          "大量",
+          2
+        ],
+        [
+          "最后",
+          2
+        ],
+        [
+          "一段",
+          1
+        ]
+      ]
+    }
+  ],
+  "errors": []
+}

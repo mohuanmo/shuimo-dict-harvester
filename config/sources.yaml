@@ -1,0 +1,59 @@
+# ============================================================
+# 水墨词库采集配置
+# 改这里就能换数据源 / 调词库口味，代码不用动
+# ============================================================
+
+output:
+  dir: data/dict
+  # 词库行模板，占位符：{word} {freq} {pos} {cls}
+  # 水墨如果只吃「词 词频」，就改成 "{word} {freq}"
+  template: "{word}\t{freq}\t{pos}\t{cls}"
+  min_freq: 2            # 合并后词频低于此值不导出
+  max_words: 0           # 0 = 不限；超量时按词频取前 N
+  split_by_class: true   # 额外按分类拆成 classes/<类名>.txt
+  encoding: utf-8
+
+scoring:
+  cap_per_source: 300    # 单个词在单个源里的最高计分，防止某个刷量站点把词频刷爆
+  default_weight: 1.0
+  half_life_days: 90     # 历史词频衰减半衰期，0 = 不衰减（词库会只增不减）
+  max_age_days: 400      # 连续这么久没再出现就淘汰
+  drop_below: 0.8        # 衰减到低于此分数就淘汰
+
+fetch:
+  delay: 1.5             # 每次请求间隔秒数（别把人家站点打挂）
+  timeout: 25
+  retries: 2
+  respect_robots: true
+  save_raw: true         # 原始 HTML 存 data/raw（仅本地保留，.gitignore 掉）
+
+# 数据源：name 会写进报告；weight 越大这个词库越"偏"这个源
+# selector 目前留空即可（正文抽取是启发式的），后续可扩展
+sources:
+  # ⚠️ 示例源：只为了让新仓库第一次跑就是绿的。
+  # 上线前请把 enabled 改成 false，否则词库会混进这些测试文本。
+  - name: 示例-本地页面
+    url: data/sample.html
+    weight: 1.0
+    enabled: true
+
+  # ↓ 正式的源，把 enabled 改成 true 就启用
+  - name: 人民网-要闻
+    url: https://www.people.com.cn/
+    weight: 1.2
+    enabled: false
+
+  - name: 澎湃-要闻
+    url: https://www.thepaper.cn/
+    weight: 1.0
+    enabled: false
+
+  - name: 维基百科-中文随机条目
+    url: https://zh.wikipedia.org/wiki/Special:Random
+    weight: 1.5
+    enabled: false
+
+  - name: 少数派
+    url: https://sspai.com/
+    weight: 1.0
+    enabled: false

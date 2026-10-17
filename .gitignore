@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 原始正文不入库，只留成品
+data/raw/*
+!data/raw/.gitkeep
+
+# 本地临时
+*.log
+.DS_Store

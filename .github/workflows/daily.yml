@@ -1,0 +1,82 @@
+name: 每日更新词库
+
+on:
+  schedule:
+    # GitHub Actions 的 cron 一律是 UTC。
+    # 18:30 UTC = 北京时间次日 02:30，避开整点拥堵。
+    - cron: "30 18 * * *"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "只跑名字包含该字符串的源（留空=全部）"
+        required: false
+        default: ""
+      reset:
+        description: "清空历史状态重建（true/false）"
+        required: false
+        default: "false"
+
+# 同一时间只跑一个，避免两个 run 同时改 state.json 打架
+concurrency:
+  group: dict-harvest
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 抓取 + 分词 + 分类
+        env:
+          only: ${{ inputs.only }}
+          reset: ${{ inputs.reset }}
+        run: |
+          ARGS=""
+          [ -n "$only" ] && ARGS="$ARGS --only $only"
+          [ "$reset" = "true" ] && ARGS="$ARGS --reset"
+          python src/harvest.py $ARGS
+
+      - name: 统计产物
+        run: |
+          echo "词条数：$(grep -vc '^#' data/dict/shuimo.dict || echo 0)"
+          du -h data/dict/shuimo.dict
+
+      - name: 提交回仓库
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/dict
+          if git diff --cached --quiet; then
+            echo "今天没有变化，跳过提交"
+          else
+            git commit -m "chore(dict): 每日词库更新 $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: 保留本次词库产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: shuimo-dict-${{ github.run_number }}
+          path: |
+            data/dict/shuimo.dict
+            data/dict/report-*.md
+            data/dict/meta.json
+          retention-days: 30

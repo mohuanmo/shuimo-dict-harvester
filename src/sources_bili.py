@@ -34,7 +34,7 @@ _nav = {"key": None, "ts": 0}
 def mixin_key(force=False):
     if not force and _nav["key"] and time.time() - _nav["ts"] < 3600:
         return _nav["key"]
-    d = fetchx.get_json(API + "/x/web-interface/nav", allow_empty=True)
+    d = fetchx.get_json(API + "/x/web-interface/nav", allow_empty=True, allow_code=True)
     img = d["data"]["wbi_img"]["img_url"].rsplit("/", 1)[-1].split(".")[0]
     sub = d["data"]["wbi_img"]["sub_url"].rsplit("/", 1)[-1].split(".")[0]
     raw = img + sub

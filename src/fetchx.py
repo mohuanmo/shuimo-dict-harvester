@@ -138,7 +138,8 @@ def validate_text(text, min_chars=60, min_cjk_ratio=0.30, min_unique_ratio=0.10)
     return {"chars": len(text), "cjk": round(ratio, 3)}
 
 
-def get_json(url, timeout=25, referer="https://www.bilibili.com/", allow_empty=False):
+def get_json(url, timeout=25, referer="https://www.bilibili.com/", allow_empty=False,
+             allow_code=False):
     raw, ctype, final, _ = http_get(url, timeout=timeout, referer=referer,
                                     accept="application/json, text/plain, */*")
     txt = raw.decode("utf-8", "ignore").strip()
@@ -151,7 +152,9 @@ def get_json(url, timeout=25, referer="https://www.bilibili.com/", allow_empty=F
     except json.JSONDecodeError:
         raise SourceRejected("JSON 解析失败")
     if isinstance(d, dict) and "code" in d:
-        if d["code"] != 0:
+        # allow_code：像 /x/web-interface/nav 这种，未登录时必然回 -101，
+        # 但 data 里仍然带着我们需要的 wbi 密钥
+        if d["code"] != 0 and not allow_code:
             raise SourceRejected("接口 code=%s %s" % (d["code"], d.get("message", "")))
         if not allow_empty and not d.get("data"):
             raise SourceRejected("接口返回空 data")

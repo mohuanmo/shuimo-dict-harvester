@@ -22,6 +22,16 @@ import fetchx
 
 API = "https://api.bilibili.com"
 
+# 评论/弹幕里的 [笑哭] [吃瓜] 这类表情占位符、零宽字符、多余空白
+_EMOJI = re.compile(r"\[[^\]]{1,8}\]")
+_ZW = re.compile(r"[\u200b-\u200f\u2028\u2029\ufeff]")
+
+
+def clean_text(s):
+    s = _EMOJI.sub("", s or "")
+    s = _ZW.sub("", s)
+    return re.sub(r"\s+", " ", s).strip()
+
 # wbi 混排表（B 站前端固定常量）
 MIXIN_TAB = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
              33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61,
@@ -118,12 +128,12 @@ def comments(vids, pages=2, delay=0.5):
                     break
                 data = d.get("data") or {}
                 for r in (data.get("top_replies") or []) + (data.get("replies") or []):
-                    msg = ((r.get("content") or {}).get("message") or "").strip()
+                    msg = clean_text((r.get("content") or {}).get("message"))
                     if msg:
                         lines.append(msg)
                         # 楼中楼往往更口语
                         for sub in ((r.get("replies") or [])[:3]):
-                            m2 = ((sub.get("content") or {}).get("message") or "").strip()
+                            m2 = clean_text((sub.get("content") or {}).get("message"))
                             if m2:
                                 lines.append(m2)
                 cur = data.get("cursor") or {}
@@ -236,6 +246,7 @@ def danmaku(vids, per_video=900, segments=2, delay=0.4):
     out = []
     for s in lines:
         s = s.strip()
+        s = clean_text(s)
         if 1 <= len(s) <= 40 and s not in seen:
             seen.add(s)
             out.append(s)

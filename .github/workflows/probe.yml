@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: 探测弹幕接口
-        run: python3 src/probe_dm.py
+        run: python3 src/probe2.py
       - name: 提交探针结果
         run: |
           git config user.name  "github-actions[bot]"

@@ -36,6 +36,11 @@ scoring:
   max_age_days: 400
   drop_below: 0.8
 
+filter:
+  only_chinese: true     # 只收中文词：英文/数字/符号在分词后直接丢
+  min_len: 2
+  max_len: 12
+
 bigram:
   max_rows: 300000
   min_count_keep: 1

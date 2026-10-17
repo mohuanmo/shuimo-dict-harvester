@@ -66,6 +66,7 @@ DEFAULTS = {
         "max_age_days": 400,
         "drop_below": 0.8,
     },
+    "filter": {"only_chinese": True, "min_len": 2, "max_len": 12},
     "bigram": {"max_rows": 300000, "min_count_keep": 1},
     "fetch": {"delay": 1.5, "timeout": 25, "retries": 2,
               "respect_robots": True, "save_raw": True},
@@ -207,13 +208,23 @@ def process_source(src, cfg, proxy=None):
 
     tokens, engine, _tinfo = wb.tokenize(text)
 
+    fcfg2 = cfg.get("filter", {})
+    only_cn = fcfg2.get("only_chinese", True)
+    min_len = int(fcfg2.get("min_len", 2))
+    max_len = int(fcfg2.get("max_len", 12))
+
     freq, pos_of, dropped = Counter(), {}, 0
     for w, flag in tokens:
         if wb.check_word(w):
             dropped += 1
             continue
-        if re.fullmatch(r"[A-Za-z][A-Za-z'\-]*", w):
-            w = w.lower()
+        # 只收中文：英文 / 数字 / 假名 / 符号一律不要
+        if only_cn and not HAN.match(w):
+            dropped += 1
+            continue
+        if not (min_len <= len(w) <= max_len):
+            dropped += 1
+            continue
         freq[w] += 1
         if w not in pos_of:
             pos_of[w] = wb.pos_cn(flag)
@@ -367,9 +378,9 @@ def load_bigram(path):
     return {(k.split(" ", 1)[0], k.split(" ", 1)[1]): v for k, v in d.items()}
 
 
-def merge_bigram(path, counts, cfg, today):
+def merge_bigram(old, counts, cfg):
     """bigram 用真实整数共现次数，不做衰减（要的是"语料统计值"）"""
-    old = load_bigram(path)
+    old = dict(old)
     for k, v in counts.items():
         old[k] = old.get(k, 0) + v
     cap = cfg["bigram"].get("max_rows", 300000)
@@ -605,7 +616,7 @@ def main():
 
     state, dropped = merge_state(state, today_scores, pos_all, src_of, cfg, today)
     if bg_today:
-        bg = merge_bigram(bg_path, bg_today, cfg, today)
+        bg = merge_bigram(bg, bg_today, cfg)
 
     rows, produced, _pc = export_all(state["words"], bg, cfg, out_dir, today,
                                      write=not a.dry_run)

@@ -194,9 +194,13 @@ def process_source(src, cfg, proxy=None):
     name = src.get("name") or src.get("url")
     text, real_url, note = source_text(src, cfg, proxy)
     # 这一层是关键：404/登录墙/空白 JSON 在这里被拦下，绝不进词库
-    vinfo = fetchx.validate_text(text,
-                                 min_chars=src.get("min_chars", 60),
-                                 min_cjk_ratio=src.get("min_cjk", 0.30))
+    try:
+        vinfo = fetchx.validate_text(text,
+                                     min_chars=src.get("min_chars", 60),
+                                     min_cjk_ratio=src.get("min_cjk", 0.30),
+                                     min_unique_ratio=src.get("min_unique", 0.10))
+    except fetchx.SourceRejected as e:
+        raise fetchx.SourceRejected("%s ｜ 样本：%s" % (e, text[:70].replace("\n", " ")))
     text = text.strip()
 
     old_min = wb.MIN_SENT

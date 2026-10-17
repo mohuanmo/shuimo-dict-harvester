@@ -82,6 +82,7 @@ sources:
     delay: 0.6
     min_sent: 4
     sentences: false
+    min_unique: 0.02       # 评论区天然高重复（"哈哈""来了"），单独放宽
     weight: 1.6
     enabled: true
 
@@ -94,6 +95,7 @@ sources:
     delay: 0.4
     min_sent: 4
     sentences: false
+    min_unique: 0.02
     weight: 1.3
     enabled: true
 

@@ -134,9 +134,15 @@ def comments(vids, pages=2, delay=0.5):
                     break
                 time.sleep(delay)
         time.sleep(delay)
-    if not lines:
+    # 置顶评论会和普通评论重复，去个重
+    seen, uniq = set(), []
+    for s in lines:
+        if s not in seen:
+            seen.add(s)
+            uniq.append(s)
+    if not uniq:
         raise fetchx.SourceRejected("评论区一条都没拿到")
-    return lines
+    return uniq
 
 
 # ---------------------------------------------------------------- 弹幕（protobuf）

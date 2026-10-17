@@ -102,6 +102,13 @@ python3 src/wordbank.py ./page.mhtml -n 80 --why 薇帕
 2. 按需改 `output.template`，或加一个 `src/export_<format>.py` 做转换；
 3. 让水墨订阅 `https://raw.githubusercontent.com/<you>/shuimo-dict-harvester/main/data/dict/shuimo.dict`，或手动导入。
 
+## 已知限制
+
+- **示例源默认开着**（`config/sources.yaml` 里的「示例-本地页面」），只为让新仓库第一次跑就是绿的。上线前务必 `enabled: false`，否则词库会混进测试文本。
+- `state.json` 随词条线性增长（10 万词约 8–15 MB），每天全量提交一次，仓库体积会慢慢变大。词库规模大了以后建议把 state 挪到 Actions Cache 或 Release 附件，仓库里只留成品 dict。
+- 账号的 **Actions artifact 存储配额**如果满了，上传会失败；工作流里已加 `continue-on-error`，不影响词库提交。
+- 正文抽取是启发式的（按块级标签 + 丢弃 nav/footer），对强 JS 渲染的站点无效，那种站点要么换静态镜像，要么上 Playwright（会显著增加 CI 时间）。
+
 ## 合规
 
 - 只抓取公开页面，默认遵守 `robots.txt`，请求带延迟；
